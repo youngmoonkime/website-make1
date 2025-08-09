@@ -1,0 +1,443 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Search, Star, X, Clapperboard, Calendar, Clock, Film, PlayCircle, Info } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+// --- API 설정 ---
+const API_KEY = "5c03b9b4185b2b802ca8afc3ef120fdf"; 
+const API_BASE_URL = "https://api.themoviedb.org/3";
+const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/original";
+const POSTER_IMAGE_URL = "https://image.tmdb.org/t/p/w500";
+
+// --- Framer Motion Variants ---
+const pageVariants = {
+  initial: { opacity: 0, y: 20 },
+  in: { opacity: 1, y: 0 },
+  out: { opacity: 0, y: -20 },
+};
+const pageTransition = { type: "tween", ease: "anticipate", duration: 0.5 };
+const modalVariants = { hidden: { opacity: 0, scale: 0.9 }, visible: { opacity: 1, scale: 1 } };
+const listVariants = { visible: { transition: { staggerChildren: 0.07 } } };
+const itemVariants = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
+
+// --- 데이터 관리 훅 ---
+function usePersistentState(key, defaultValue) {
+  const [state, setState] = useState(() => {
+    const storedValue = localStorage.getItem(key);
+    return storedValue ? JSON.parse(storedValue) : defaultValue;
+  });
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(state));
+  }, [key, state]);
+  return [state, setState];
+}
+
+// --- 주요 컴포넌트 ---
+
+const MovieCard = ({ movie, onSelectMovie }) => (
+  <motion.div 
+    variants={itemVariants}
+    className="bg-gray-800 rounded-lg overflow-hidden shadow-lg cursor-pointer group relative"
+    onClick={() => onSelectMovie(movie.id)}
+    layoutId={`movie-card-${movie.id}`}
+  >
+    <div className="absolute inset-0 bg-black bg-opacity-40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10 flex items-center justify-center">
+      <PlayCircle className="w-16 h-16 text-white" />
+    </div>
+    <motion.img 
+      src={movie.poster_path ? `${POSTER_IMAGE_URL}${movie.poster_path}` : "https://placehold.co/500x750/1f2937/ffffff?text=No+Image"} 
+      alt={`${movie.title} 포스터`}
+      className="w-full h-auto object-cover transform group-hover:scale-110 transition-transform duration-300"
+      whileHover={{ scale: 1.1 }}
+    />
+    <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black to-transparent">
+      <h3 className="font-bold text-md truncate text-white">{movie.title}</h3>
+      <div className="flex items-center mt-1 text-sm text-gray-300">
+        <Star className="w-4 h-4 text-yellow-500 mr-1" fill="currentColor" />
+        <span>{movie.vote_average.toFixed(1)}</span>
+      </div>
+    </div>
+  </motion.div>
+);
+
+const MovieList = ({ title, movies, onSelectMovie }) => (
+  <section className="mb-16">
+    <h2 className="text-3xl font-bold text-white mb-6">{title}</h2>
+    <motion.div 
+      className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6"
+      initial="hidden"
+      animate="visible"
+      variants={listVariants}
+    >
+      {movies.map(movie => (
+        <MovieCard key={movie.id} movie={movie} onSelectMovie={onSelectMovie} />
+      ))}
+    </motion.div>
+  </section>
+);
+
+const MovieDetailModal = ({ movieId, onClose, watchlist, onToggleWatchlist, reviews, onAddReview, onPlayTrailer }) => {
+  const [movie, setMovie] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    const fetchMovieDetail = async () => {
+      if (!API_KEY) { setLoading(false); return; }
+      try {
+        setLoading(true);
+        const res = await fetch(`${API_BASE_URL}/movie/${movieId}?api_key=${API_KEY}&language=ko-KR&append_to_response=credits,videos`);
+        const data = await res.json();
+        setMovie(data);
+      } catch (error) { console.error("영화 상세 정보 로딩 실패:", error); } 
+      finally { setLoading(false); }
+    };
+    fetchMovieDetail();
+  }, [movieId]);
+
+  const isMovieInWatchlist = watchlist.some(item => item.id === movieId);
+  const movieReviews = reviews.filter(review => review.movieId === movieId);
+
+  return (
+    <AnimatePresence>
+      <motion.div 
+        className="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+      >
+        <motion.div 
+          className="bg-gray-900 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl relative" 
+          variants={modalVariants}
+          initial="hidden"
+          animate="visible"
+          exit="hidden"
+          onClick={e => e.stopPropagation()}
+          layoutId={`movie-card-${movieId}`}
+        >
+          {loading ? (
+            <div className="h-96 flex items-center justify-center"><div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div></div>
+          ) : !movie ? (
+            <div className="h-96 flex flex-col items-center justify-center text-center p-8">
+              <h2 className="text-xl font-bold text-red-500">오류</h2>
+              <p>영화 정보를 불러오지 못했습니다.</p>
+            </div>
+          ) : (
+            <>
+              <div className="relative h-64 md:h-96">
+                <img src={movie.backdrop_path ? `${IMAGE_BASE_URL}${movie.backdrop_path}` : "https://placehold.co/1280x720/111827/ffffff?text=No+Backdrop"} className="w-full h-full object-cover rounded-t-2xl opacity-40" alt=""/>
+                <div className="absolute inset-0 bg-gradient-to-t from-gray-900 to-transparent"></div>
+                <button onClick={onClose} className="absolute top-4 right-4 text-white bg-black/50 rounded-full p-2 hover:bg-black/80 transition-colors z-10"><X /></button>
+              </div>
+              
+              <div className="p-6 md:p-10 -mt-32 relative z-10">
+                <div className="flex flex-col md:flex-row gap-8">
+                  <div className="md:w-1/3 flex-shrink-0 -mt-24 md:-mt-32">
+                    <img src={movie.poster_path ? `${POSTER_IMAGE_URL}${movie.poster_path}` : "https://placehold.co/500x750/1f2937/ffffff?text=No+Image"} className="w-full rounded-lg shadow-xl" alt={`${movie.title} 포스터`}/>
+                  </div>
+                  <div className="md:w-2/3">
+                    <h1 className="text-3xl md:text-5xl font-bold text-white">{movie.title}</h1>
+                    <p className="text-gray-400 mt-2 italic">{movie.tagline}</p>
+                    <div className="flex items-center flex-wrap gap-x-4 gap-y-2 mt-4 text-sm text-gray-300">
+                      <span className="flex items-center gap-1.5"><Star size={16} className="text-yellow-400" fill="currentColor"/> {movie.vote_average.toFixed(1)}</span>
+                      <span className="flex items-center gap-1.5"><Calendar size={16}/> {movie.release_date}</span>
+                      <span className="flex items-center gap-1.5"><Clock size={16}/> {movie.runtime}분</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-4">
+                      {movie.genres.map(g => <span key={g.id} className="bg-gray-700/80 text-xs px-3 py-1 rounded-full">{g.name}</span>)}
+                    </div>
+                    <p className="mt-6 text-gray-300 text-base leading-relaxed">{movie.overview}</p>
+                    <div className="flex gap-4 mt-6">
+                        <button onClick={() => onPlayTrailer(movie.id)} className="flex-1 bg-white text-black py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors"><PlayCircle/> 재생</button>
+                        <button onClick={() => onToggleWatchlist(movie)} className={`flex-1 py-3 rounded-lg font-bold transition-all duration-300 flex items-center justify-center gap-2 ${isMovieInWatchlist ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                          {isMovieInWatchlist ? '찜 취소' : '찜하기'}
+                        </button>
+                    </div>
+                  </div>
+                </div>
+                <ReviewSection movieId={movieId} reviews={movieReviews} onAddReview={onAddReview} />
+              </div>
+            </>
+          )}
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
+const ReviewSection = ({ movieId, reviews, onAddReview }) => {
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState('');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (comment.trim() && rating > 0) {
+      onAddReview({ movieId, rating, comment, id: Date.now() });
+      setComment('');
+      setRating(0);
+    }
+  };
+
+  return (
+    <div className="mt-12 pt-8 border-t border-gray-700/50">
+      <h3 className="text-2xl font-bold text-white mb-6">리뷰</h3>
+      <form onSubmit={handleSubmit} className="bg-gray-800/50 p-4 rounded-lg mb-8">
+        <div className="flex items-center mb-3">
+          <span className="mr-3 text-sm text-gray-300">별점:</span>
+          {[1, 2, 3, 4, 5].map(star => (
+            <motion.div key={star} whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.9 }}>
+              <Star className={`cursor-pointer transition-colors ${rating >= star ? 'text-yellow-400' : 'text-gray-600 hover:text-yellow-600'}`} fill={rating >= star ? 'currentColor' : 'none'} onClick={() => setRating(star)} />
+            </motion.div>
+          ))}
+        </div>
+        <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="리뷰를 작성해주세요..." className="w-full h-24 bg-gray-700/80 rounded-md p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+        <button type="submit" className="mt-3 bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:bg-gray-600" disabled={!rating || !comment.trim()}>리뷰 등록</button>
+      </form>
+      <div className="space-y-4 max-h-64 overflow-y-auto pr-2">
+        {reviews.length > 0 ? reviews.map(review => (
+          <motion.div key={review.id} className="bg-gray-800/50 p-4 rounded-lg" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
+            <div className="flex items-center mb-2">
+              {[...Array(5)].map((_, i) => <Star key={i} size={16} className={i < review.rating ? 'text-yellow-400' : 'text-gray-600'} fill="currentColor"/>)}
+            </div>
+            <p className="text-sm text-gray-300">{review.comment}</p>
+          </motion.div>
+        )) : <p className="text-sm text-gray-500">아직 리뷰가 없습니다.</p>}
+      </div>
+    </div>
+  );
+};
+
+const TrailerModal = ({ trailerKey, onClose }) => (
+    <motion.div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+        <button onClick={onClose} className="absolute top-5 right-5 text-white text-3xl z-20">&times;</button>
+        <motion.div className="relative w-full max-w-4xl aspect-video" initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8 }}>
+            <iframe src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0`} title="YouTube video player" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="w-full h-full"></iframe>
+        </motion.div>
+    </motion.div>
+);
+
+const HeroSection = ({ movie, onSelectMovie, onPlayTrailer }) => {
+  if (!movie) return <div className="h-[60vh] bg-gray-800 animate-pulse"></div>;
+  return (
+    <div className="relative h-[60vh] mb-12 text-white">
+      <div className="absolute inset-0">
+        <img src={`${IMAGE_BASE_URL}${movie.backdrop_path}`} alt={movie.title} className="w-full h-full object-cover"/>
+        <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/70 to-transparent"></div>
+      </div>
+      <div className="relative z-10 h-full flex flex-col justify-end container mx-auto px-6 pb-16">
+        <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="text-4xl md:text-6xl font-black max-w-2xl">{movie.title}</motion.h1>
+        <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="mt-4 max-w-2xl text-gray-300 line-clamp-3">{movie.overview}</motion.p>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }} className="flex gap-4 mt-6">
+          <button onClick={() => onPlayTrailer(movie.id)} className="bg-white text-black px-8 py-3 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-200 transition-colors"><PlayCircle/> 재생</button>
+          <button onClick={() => onSelectMovie(movie.id)} className="bg-gray-500/50 text-white px-8 py-3 rounded-lg font-bold flex items-center gap-2 hover:bg-gray-500/80 transition-colors"><Info/> 상세 정보</button>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+const HomePage = ({ onSelectMovie, onPlayTrailer }) => {
+  const [popularMovies, setPopularMovies] = useState([]);
+  const [topRatedMovies, setTopRatedMovies] = useState([]);
+
+  useEffect(() => {
+    if (!API_KEY) return;
+    const fetchMovies = async () => {
+      try {
+        const [popularRes, topRatedRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/movie/popular?api_key=${API_KEY}&language=ko-KR&page=1`),
+          fetch(`${API_BASE_URL}/movie/top_rated?api_key=${API_KEY}&language=ko-KR&page=1`)
+        ]);
+        const popularData = await popularRes.json();
+        const topRatedData = await topRatedRes.json();
+        setPopularMovies(popularData.results);
+        setTopRatedMovies(topRatedData.results);
+      } catch (error) { console.error("영화 목록 로딩 실패:", error); }
+    };
+    fetchMovies();
+  }, []);
+
+  if (!API_KEY) return <div className="text-center text-red-500 p-8">TMDB API 키가 필요합니다.</div>;
+
+  return (
+    <>
+      <HeroSection movie={popularMovies[0]} onSelectMovie={onSelectMovie} onPlayTrailer={onPlayTrailer} />
+      <div className="container mx-auto px-6">
+        <MovieList title="인기 영화" movies={popularMovies} onSelectMovie={onSelectMovie} />
+        <MovieList title="평점 높은 영화" movies={topRatedMovies} onSelectMovie={onSelectMovie} />
+      </div>
+    </>
+  );
+};
+
+const SearchPage = ({ onSelectMovie }) => {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searched, setSearched] = useState(false);
+
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (!query.trim() || !API_KEY) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/search/movie?api_key=${API_KEY}&language=ko-KR&query=${encodeURIComponent(query)}&page=1`);
+      const data = await res.json();
+      setResults(data.results);
+      setSearched(true);
+    } catch (error) { console.error("검색 실패:", error); }
+  };
+
+  return (
+    <div className="py-8 container mx-auto px-6">
+      <form onSubmit={handleSearch} className="flex gap-2 mb-12 max-w-2xl mx-auto">
+        <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="영화를 검색하세요..." className="flex-grow bg-gray-700/50 rounded-full px-6 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+        <button type="submit" className="bg-blue-600 hover:bg-blue-700 rounded-full px-6 py-3 font-semibold transition-colors"><Search /></button>
+      </form>
+      {searched && (
+        results.length > 0 ? (
+          <MovieList title={`'${query}' 검색 결과`} movies={results} onSelectMovie={onSelectMovie} />
+        ) : (
+          <p className="text-center text-gray-400">검색 결과가 없습니다.</p>
+        )
+      )}
+    </div>
+  );
+};
+
+const WatchlistPage = ({ watchlist, onSelectMovie }) => (
+  <div className="py-8 container mx-auto px-6">
+    <h2 className="text-3xl font-bold text-white mb-8">내가 찜한 목록</h2>
+    {watchlist.length > 0 ? (
+      <motion.div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6" initial="hidden" animate="visible" variants={listVariants}>
+        {watchlist.map(movie => (
+          <MovieCard key={movie.id} movie={movie} onSelectMovie={onSelectMovie} />
+        ))}
+      </motion.div>
+    ) : (
+      <div className="text-center py-20">
+        <Film className="mx-auto w-16 h-16 text-gray-600 mb-4"/>
+        <p className="text-gray-400">아직 찜한 영화가 없습니다.</p>
+      </div>
+    )}
+  </div>
+);
+
+// --- 메인 앱 ---
+export default function App() {
+  const [page, setPage] = useState('home');
+  const [selectedMovieId, setSelectedMovieId] = useState(null);
+  const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
+  const [trailerKey, setTrailerKey] = useState(null);
+  
+  const [watchlist, setWatchlist] = usePersistentState('watchlist', []);
+  const [reviews, setReviews] = usePersistentState('reviews', []);
+
+  const handleToggleWatchlist = (movie) => {
+    setWatchlist(prev => 
+      prev.some(item => item.id === movie.id)
+        ? prev.filter(item => item.id !== movie.id)
+        : [...prev, movie]
+    );
+  };
+
+  const handleAddReview = (review) => {
+    setReviews(prev => [...prev, review]);
+  };
+
+  const handlePlayTrailer = async (movieId) => {
+    if (!API_KEY) return;
+    const findBestTrailer = (videos) => {
+      if (!videos || videos.length === 0) return null;
+      const priority = ['Official Trailer', 'Trailer', 'Teaser'];
+      for (const p of priority) {
+        const trailer = videos.find(video => video.type === p);
+        if (trailer) return trailer;
+      }
+      return videos[0];
+    };
+    try {
+      let res = await fetch(`${API_BASE_URL}/movie/${movieId}/videos?api_key=${API_KEY}&language=ko-KR`);
+      let data = await res.json();
+      let trailer = findBestTrailer(data.results);
+      if (!trailer) {
+        res = await fetch(`${API_BASE_URL}/movie/${movieId}/videos?api_key=${API_KEY}`);
+        data = await res.json();
+        trailer = findBestTrailer(data.results);
+      }
+      if (trailer) {
+        setTrailerKey(trailer.key);
+      } else {
+        alert("이 영화의 트레일러를 찾을 수 없습니다.");
+      }
+    } catch (error) {
+      console.error("트레일러 로딩 실패:", error);
+      alert("트레일러를 불러오는 데 실패했습니다.");
+    }
+  };
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsHeaderScrolled(window.scrollY > 10);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const renderPage = () => {
+    switch (page) {
+      case 'search':
+        return <SearchPage onSelectMovie={setSelectedMovieId} />;
+      case 'watchlist':
+        return <WatchlistPage watchlist={watchlist} onSelectMovie={setSelectedMovieId} />;
+      default:
+        return <HomePage onSelectMovie={setSelectedMovieId} onPlayTrailer={handlePlayTrailer} />;
+    }
+  };
+
+  return (
+    <div className="bg-gray-900 min-h-screen text-white font-sans">
+      <header className={`sticky top-0 z-40 transition-colors duration-300 ${isHeaderScrolled ? 'bg-gray-900/80 backdrop-blur-lg shadow-lg' : 'bg-transparent'}`}>
+        <nav className="container mx-auto px-6 py-4 flex justify-between items-center">
+          <div onClick={() => setPage('home')} className="flex items-center gap-2 text-xl font-bold text-white cursor-pointer transform hover:scale-105 transition-transform">
+            <Clapperboard className="text-blue-500" />
+            <span>MovieDB</span>
+          </div>
+          <div className="flex items-center gap-6">
+            <button onClick={() => setPage('home')} className={`text-sm font-medium transition-colors ${page === 'home' ? 'text-blue-400' : 'text-gray-300 hover:text-white'}`}>홈</button>
+            <button onClick={() => setPage('search')} className={`text-sm font-medium transition-colors ${page === 'search' ? 'text-blue-400' : 'text-gray-300 hover:text-white'}`}>검색</button>
+            <button onClick={() => setPage('watchlist')} className={`text-sm font-medium transition-colors ${page === 'watchlist' ? 'text-blue-400' : 'text-gray-300 hover:text-white'}`}>찜한 목록</button>
+          </div>
+        </nav>
+      </header>
+
+      <AnimatePresence mode="wait">
+        <motion.main
+          key={page}
+          variants={pageVariants}
+          initial="initial"
+          animate="in"
+          exit="out"
+          transition={pageTransition}
+        >
+          {renderPage()}
+        </motion.main>
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {selectedMovieId && (
+          <MovieDetailModal 
+            movieId={selectedMovieId} 
+            onClose={() => setSelectedMovieId(null)}
+            watchlist={watchlist}
+            onToggleWatchlist={handleToggleWatchlist}
+            reviews={reviews}
+            onAddReview={handleAddReview}
+            onPlayTrailer={handlePlayTrailer}
+          />
+        )}
+      </AnimatePresence>
+      
+      <AnimatePresence>
+        {trailerKey && <TrailerModal trailerKey={trailerKey} onClose={() => setTrailerKey(null)} />}
+      </AnimatePresence>
+    </div>
+  );
+}
