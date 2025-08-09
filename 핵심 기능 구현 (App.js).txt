@@ -1,0 +1,191 @@
+import React, { useState, useEffect } from 'react';
+import { Search, Star, X, Clapperboard, Calendar, Clock, Film } from 'lucide-react';
+
+// --- API 설정 ---
+const API_KEY = "5c03b9b4185b2b802ca8afc3ef120fdf"; // 본인의 API 키로 교체
+const API_BASE_URL = "https://api.themoviedb.org/3";
+const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
+
+// --- 주요 컴포넌트 ---
+
+// 영화 카드 컴포넌트
+const MovieCard = ({ movie, onSelectMovie }) => (
+  <div 
+    className="bg-gray-800 rounded-lg overflow-hidden shadow-lg cursor-pointer transition-transform duration-300 hover:scale-105"
+    onClick={() => onSelectMovie(movie.id)}
+  >
+    <img 
+      src={movie.poster_path ? `${IMAGE_BASE_URL}${movie.poster_path}` : "https://placehold.co/500x750/1f2937/ffffff?text=No+Image"} 
+      alt={`${movie.title} 포스터`}
+      className="w-full h-auto object-cover"
+    />
+    <div className="p-4">
+      <h3 className="font-bold text-md truncate text-white">{movie.title}</h3>
+      <div className="flex items-center mt-2 text-sm text-gray-400">
+        <Star className="w-4 h-4 text-yellow-500 mr-1" />
+        <span>{movie.vote_average.toFixed(1)}</span>
+      </div>
+    </div>
+  </div>
+);
+
+// 영화 목록 섹션
+const MovieList = ({ title, movies, onSelectMovie }) => (
+  <section className="mb-12">
+    <h2 className="text-2xl font-bold text-white mb-6">{title}</h2>
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+      {movies.map(movie => (
+        <MovieCard key={movie.id} movie={movie} onSelectMovie={onSelectMovie} />
+      ))}
+    </div>
+  </section>
+);
+
+// 영화 상세 정보 모달
+const MovieDetailModal = ({ movieId, onClose }) => {
+  const [movie, setMovie] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    const fetchMovieDetail = async () => {
+      if (!API_KEY) { setLoading(false); return; }
+      try {
+        setLoading(true);
+        const res = await fetch(`${API_BASE_URL}/movie/${movieId}?api_key=${API_KEY}&language=ko-KR&append_to_response=credits`);
+        const data = await res.json();
+        setMovie(data);
+      } catch (error) { console.error("영화 상세 정보 로딩 실패:", error); } 
+      finally { setLoading(false); }
+    };
+    fetchMovieDetail();
+  }, [movieId]);
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (!movie) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={onClose}>
+        <div className="bg-gray-800 text-white p-8 rounded-lg" onClick={e => e.stopPropagation()}>
+          <p>영화 정보를 불러오는 데 실패했습니다.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-gray-900 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-6 md:p-10">
+          <div className="flex justify-between items-start">
+            <h1 className="text-3xl md:text-4xl font-bold text-white mb-4">{movie.title}</h1>
+            <button onClick={onClose} className="text-gray-400 hover:text-white"><X /></button>
+          </div>
+          <div className="flex flex-col md:flex-row gap-8">
+            <div className="md:w-1/3">
+              <img src={`${IMAGE_BASE_URL}${movie.poster_path}`} className="w-full rounded-lg shadow-lg" alt={`${movie.title} 포스터`}/>
+            </div>
+            <div className="md:w-2/3">
+              <p className="text-gray-400 mt-1 italic">{movie.tagline}</p>
+              <div className="flex items-center gap-4 mt-4 text-sm text-gray-300">
+                <span className="flex items-center gap-1"><Calendar size={16}/> {movie.release_date}</span>
+                <span className="flex items-center gap-1"><Clock size={16}/> {movie.runtime}분</span>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-4">
+                {movie.genres.map(g => <span key={g.id} className="bg-gray-700 text-xs px-2 py-1 rounded-full">{g.name}</span>)}
+              </div>
+              <p className="mt-6 text-gray-300 text-sm leading-relaxed">{movie.overview}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- 페이지 컴포넌트 ---
+
+// 홈 페이지
+const HomePage = ({ onSelectMovie }) => {
+  const [popularMovies, setPopularMovies] = useState([]);
+  const [topRatedMovies, setTopRatedMovies] = useState([]);
+
+  useEffect(() => {
+    if (!API_KEY) return;
+    const fetchMovies = async () => {
+      try {
+        const [popularRes, topRatedRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/movie/popular?api_key=${API_KEY}&language=ko-KR&page=1`),
+          fetch(`${API_BASE_URL}/movie/top_rated?api_key=${API_KEY}&language=ko-KR&page=1`)
+        ]);
+        const popularData = await popularRes.json();
+        const topRatedData = await topRatedRes.json();
+        setPopularMovies(popularData.results);
+        setTopRatedMovies(topRatedData.results);
+      } catch (error) { console.error("영화 목록 로딩 실패:", error); }
+    };
+    fetchMovies();
+  }, []);
+
+  if (!API_KEY) {
+    return <div className="text-center text-red-500 p-8">TMDB API 키가 필요합니다.</div>;
+  }
+
+  return (
+    <>
+      <MovieList title="인기 영화" movies={popularMovies} onSelectMovie={onSelectMovie} />
+      <MovieList title="평점 높은 영화" movies={topRatedMovies} onSelectMovie={onSelectMovie} />
+    </>
+  );
+};
+
+// --- 메인 앱 ---
+export default function App() {
+  const [page, setPage] = useState('home');
+  const [selectedMovieId, setSelectedMovieId] = useState(null);
+
+  const renderPage = () => {
+    switch (page) {
+      case 'search':
+        return <div className="text-center p-10">검색 페이지 (구현 예정)</div>;
+      case 'watchlist':
+        return <div className="text-center p-10">찜한 목록 페이지 (구현 예정)</div>;
+      default:
+        return <HomePage onSelectMovie={setSelectedMovieId} />;
+    }
+  };
+
+  return (
+    <div className="bg-gray-900 min-h-screen text-white font-sans">
+      <header className="bg-gray-800 sticky top-0 z-40">
+        <nav className="container mx-auto px-6 py-4 flex justify-between items-center">
+          <div onClick={() => setPage('home')} className="flex items-center gap-2 text-xl font-bold text-white cursor-pointer">
+            <Clapperboard className="text-blue-500" />
+            <span>MovieDB</span>
+          </div>
+          <div className="flex items-center gap-6">
+            <button onClick={() => setPage('home')} className={`text-sm font-medium ${page === 'home' ? 'text-blue-500' : 'text-gray-300 hover:text-white'}`}>홈</button>
+            <button onClick={() => setPage('search')} className={`text-sm font-medium ${page === 'search' ? 'text-blue-500' : 'text-gray-300 hover:text-white'}`}>검색</button>
+            <button onClick={() => setPage('watchlist')} className={`text-sm font-medium ${page === 'watchlist' ? 'text-blue-500' : 'text-gray-300 hover:text-white'}`}>찜한 목록</button>
+          </div>
+        </nav>
+      </header>
+
+      <main className="container mx-auto px-6 py-8">
+        {renderPage()}
+      </main>
+
+      {selectedMovieId && (
+        <MovieDetailModal 
+          movieId={selectedMovieId} 
+          onClose={() => setSelectedMovieId(null)}
+        />
+      )}
+    </div>
+  );
+}
